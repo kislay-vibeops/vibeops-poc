@@ -36,10 +36,10 @@ jobs:
             docker login --username AWS --password-stdin $ECR_REPO
           docker push $ECR_IMAGE
 
-      # 4. Download generated SST stack
+    # 4. Download generated SST stack
       - uses: actions/checkout@v4
         with:
-          repository: vibeops-client-infra/${{ env.TENANT_ID }}
+          repository: kislay007/vibeops-client-infra
           ref: dpl/${{ env.DEPLOYMENT_ID }}
           token: ${{ secrets.VIBEOPS_INFRA_READ }}
           path: infra
