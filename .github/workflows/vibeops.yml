@@ -26,7 +26,7 @@ jobs:
       # 2. Configure AWS via OIDC
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/GitHubDeployRole-${{ vars.TENANT_ID }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubDeployRole-${{ env.TENANT_ID }}
           aws-region: ${{ env.AWS_REGION }}
 
       # 3. Build + push backend image (skip if manifest says 'static')
