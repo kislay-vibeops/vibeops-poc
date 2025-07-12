@@ -10,33 +10,32 @@ env:
   TENANT_ID: ${{ github.event.client_payload.tenant_id }}
   DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
   ECR_REPO: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.TENANT_ID }}
-  ECR_IMAGE: $ECR_REPO/app:${{ vars.DEPLOYMENT_ID }}
+  ECR_IMAGE: $ECR_REPO/app:${{ github.event.client_payload.deployment_id }}
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write        # OIDC
+      id-token: write
       contents: read
 
     steps:
-      # 1. Checkout source
       - uses: actions/checkout@v4
 
-      # 2. Configure AWS via OIDC
+      # ---------- AWS creds via OIDC ----------
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/GitHubDeployRole-${{ env.TENANT_ID }}
+          role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
           aws-region: ${{ env.AWS_REGION }}
 
-      # 3. Build + push backend image (skip if manifest says 'static')
+      # ---------- container build / push ----------
       - run: |
           docker build -t $ECR_IMAGE .
-          aws ecr get-login-password --region $AWS_REGION |
-            docker login --username AWS --password-stdin $ECR_REPO
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $ECR_REPO
           docker push $ECR_IMAGE
 
-    # 4. Download generated SST stack
+      # ---------- fetch generated SST stack ----------
       - uses: actions/checkout@v4
         with:
           repository: kislay007/vibeops-client-infra
@@ -44,7 +43,7 @@ jobs:
           token: ${{ secrets.VIBEOPS_INFRA_READ }}
           path: infra
 
-      # 5. Deploy
+      # ---------- deploy ----------
       - name: SST Deploy
         working-directory: infra
         run: |
@@ -56,13 +55,4 @@ jobs:
             --outputs-file out.json
 
       - name: Deployment finished
-        run: |
-          cat out.json
-          echo "Deployment finished"
-
-      # # 6. Notify VibeOps
-      # - name: Callback
-      #   run: |
-      #     curl -X POST "https://api.vibeops.tech/v1/deployments/$DEPLOYMENT_ID/complete" \
-      #          -H "X-Api-Key: $VIBEOPS_API_KEY" \
-      #          --data-binary @out.json
+        run: cat out.json
