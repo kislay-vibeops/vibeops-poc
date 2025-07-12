@@ -56,8 +56,7 @@ jobs:
       - name: SST Deploy
         working-directory: infra
         run: |
-          # use local CLI, fail if it isn’t present
-          npx --no-install sst deploy \
+          npx sst deploy --install \
             --stage prod \
             --context tenant_id=$TENANT_ID \
             --context deployment_id=$DEPLOYMENT_ID \
