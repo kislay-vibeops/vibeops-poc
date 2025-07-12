@@ -50,17 +50,16 @@ jobs:
       # ---------- deploy ----------
       - uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: 20   # SST v3 supports 20.x, avoid 22.x for now
 
       - name: SST Deploy
         working-directory: infra
         run: |
-          npx sst deploy --install \
-            --stage prod \
+          npx sst deploy --install --stage prod \
             --context tenant_id=$TENANT_ID \
             --context deployment_id=$DEPLOYMENT_ID \
             $( [ "$RUNTIME" = "container" ] && echo --context backendImage=$ECR_IMAGE ) \
-            --outputs-file=out.json
+            --outputs-file out.json
 
       - name: Deployment summary
         run: cat infra/out.json
