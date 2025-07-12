@@ -9,33 +9,39 @@ env:
   AWS_ACCOUNT_ID: 618214385848
   TENANT_ID: ${{ github.event.client_payload.tenant_id }}
   DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
-  ECR_REPO: ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.TENANT_ID }}
-  ECR_IMAGE: $ECR_REPO/app:${{ github.event.client_payload.deployment_id }}
+  RUNTIME: ${{ github.event.client_payload.runtime }}
 
 jobs:
-  build-and-deploy:
+  build-deploy:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
 
     steps:
+      # 1  Checkout source repo
       - uses: actions/checkout@v4
 
-      # ---------- AWS creds via OIDC ----------
+      # 2  Get short-lived AWS creds via OIDC
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region:     ${{ env.AWS_REGION }}
 
-      # ---------- container build / push ----------
-      - run: |
-          docker build -t $ECR_IMAGE .
-          aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $ECR_REPO
-          docker push $ECR_IMAGE
+      # 3  (optional) Build & push container image
+      - name: Build & push (only for container runtime)
+        if: env.RUNTIME == 'container'
+        env:
+          ECR_REPO:  ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}
+          ECR_IMAGE: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}/app:${{ env.DEPLOYMENT_ID }}
+        run: |
+          echo "Building image $ECR_IMAGE"
+          docker build -t "$ECR_IMAGE" .
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$ECR_REPO"
+          docker push "$ECR_IMAGE"
 
-      # ---------- fetch generated SST stack ----------
+      # 4  Pull the generated SST stack
       - uses: actions/checkout@v4
         with:
           repository: kislay007/vibeops-client-infra
@@ -43,16 +49,26 @@ jobs:
           token: ${{ secrets.VIBEOPS_INFRA_READ }}
           path: infra
 
-      # ---------- deploy ----------
+      # 5  Deploy with SST
       - name: SST Deploy
         working-directory: infra
+        env:
+          BACKEND_IMAGE: ${{ env.RUNTIME == 'container' && format('{0}/{1}/app:{2}', env.AWS_ACCOUNT_ID, env.TENANT_ID, env.DEPLOYMENT_ID) || '' }}
         run: |
-          npm i -g sst@3.3.1
-          sst deploy --stage prod \
-            --context tenant_id=$TENANT_ID \
-            --context deployment_id=$DEPLOYMENT_ID \
-            --context backendImage=$ECR_IMAGE \
-            --outputs-file out.json
+          npm i -g sst@3
+          # --context backendImage is only needed for container stacks
+          if [ "${{ env.RUNTIME }}" = "container" ]; then
+            sst deploy --stage prod \
+              --context tenant_id=${{ env.TENANT_ID }} \
+              --context deployment_id=${{ env.DEPLOYMENT_ID }} \
+              --context backendImage=$BACKEND_IMAGE \
+              --outputs-file out.json
+          else
+            sst deploy --stage prod \
+              --context tenant_id=${{ env.TENANT_ID }} \
+              --context deployment_id=${{ env.DEPLOYMENT_ID }} \
+              --outputs-file out.json
+          fi
 
-      - name: Deployment finished
-        run: cat out.json
+      - name: Deployment summary
+        run: cat infra/out.json
