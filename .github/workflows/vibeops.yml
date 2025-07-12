@@ -28,18 +28,13 @@ jobs:
           role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
           aws-region:     ${{ env.AWS_REGION }}
 
-      # 3  (optional) Build & push container image
-      - name: Build & push (only for container runtime)
-        if: env.RUNTIME == 'container'
-        env:
-          ECR_REPO:  ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}
-          ECR_IMAGE: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}/app:${{ env.DEPLOYMENT_ID }}
+      # ---------- container build / push ----------
+      - if: env.RUNTIME == 'container'
         run: |
-          echo "Building image $ECR_IMAGE"
-          docker build -t "$ECR_IMAGE" .
-          aws ecr get-login-password --region "$AWS_REGION" \
-            | docker login --username AWS --password-stdin "$ECR_REPO"
-          docker push "$ECR_IMAGE"
+          docker build -t $ECR_IMAGE .
+          aws ecr get-login-password --region $AWS_REGION |
+            docker login --username AWS --password-stdin $ECR_REPO
+          docker push $ECR_IMAGE
 
       # 4  Pull the generated SST stack
       - uses: actions/checkout@v4
@@ -49,26 +44,23 @@ jobs:
           token: ${{ secrets.VIBEOPS_INFRA_READ }}
           path: infra
 
-      # 5  Deploy with SST
+      # ---------- deploy ----------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install deps
+        working-directory: infra
+        run: npm ci
+
       - name: SST Deploy
         working-directory: infra
-        env:
-          BACKEND_IMAGE: ${{ env.RUNTIME == 'container' && format('{0}/{1}/app:{2}', env.AWS_ACCOUNT_ID, env.TENANT_ID, env.DEPLOYMENT_ID) || '' }}
         run: |
-          npm i -g sst@3
-          # --context backendImage is only needed for container stacks
-          if [ "${{ env.RUNTIME }}" = "container" ]; then
-            sst deploy --stage prod \
-              --context tenant_id=${{ env.TENANT_ID }} \
-              --context deployment_id=${{ env.DEPLOYMENT_ID }} \
-              --context backendImage=$BACKEND_IMAGE \
-              --outputs-file out.json
-          else
-            sst deploy --stage prod \
-              --context tenant_id=${{ env.TENANT_ID }} \
-              --context deployment_id=${{ env.DEPLOYMENT_ID }} \
-              --outputs-file out.json
-          fi
+          npx sst deploy --stage prod \
+            --context tenant_id=$TENANT_ID \
+            --context deployment_id=$DEPLOYMENT_ID \
+            --context backendImage=$ECR_IMAGE \
+            --outputs-file out.json
 
       - name: Deployment summary
         run: cat infra/out.json
