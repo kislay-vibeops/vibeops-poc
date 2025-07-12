@@ -5,11 +5,14 @@ on:
     types: [vibeops-build]
 
 env:
-  AWS_REGION: us-east-1
-  AWS_ACCOUNT_ID: 618214385848
-  TENANT_ID: ${{ github.event.client_payload.tenant_id }}
-  DEPLOYMENT_ID: ${{ github.event.client_payload.deployment_id }}
-  RUNTIME: ${{ github.event.client_payload.runtime }}
+  AWS_REGION:        us-west-2
+  AWS_ACCOUNT_ID:    618214385848
+  TENANT_ID:         ${{ github.event.client_payload.tenant_id }}
+  DEPLOYMENT_ID:     ${{ github.event.client_payload.deployment_id }}
+  RUNTIME:           ${{ github.event.client_payload.runtime }}
+  # only used when RUNTIME == container
+  ECR_REPO:   ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.TENANT_ID }}
+  ECR_IMAGE:  ${{ vars.ECR_REPO }}/app:${{ vars.DEPLOYMENT_ID }}
 
 jobs:
   build-deploy:
@@ -28,7 +31,7 @@ jobs:
           role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
           aws-region:     ${{ env.AWS_REGION }}
 
-      # ---------- container build / push ----------
+      # ---------- container build / push (only for “container” runtime) ----------
       - if: env.RUNTIME == 'container'
         run: |
           docker build -t $ECR_IMAGE .
@@ -49,10 +52,6 @@ jobs:
         with:
           node-version: lts/*
 
-      - name: Install deps
-        working-directory: infra
-        run: npm ci
-
       - name: SST Deploy
         working-directory: infra
         run: |
@@ -60,7 +59,7 @@ jobs:
             --stage prod \
             --context tenant_id=$TENANT_ID \
             --context deployment_id=$DEPLOYMENT_ID \
-            --context backendImage=$ECR_IMAGE \
+            $( [ "$RUNTIME" = "container" ] && echo --context backendImage=$ECR_IMAGE ) \
             --outputs-file=out.json
 
       - name: Deployment summary
