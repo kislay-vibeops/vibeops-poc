@@ -56,11 +56,13 @@ jobs:
       - name: SST Deploy
         working-directory: infra
         run: |
-          npx sst deploy --stage prod \
+          # use local CLI, fail if it isn’t present
+          npx --no-install sst deploy \
+            --stage prod \
             --context tenant_id=$TENANT_ID \
             --context deployment_id=$DEPLOYMENT_ID \
             --context backendImage=$ECR_IMAGE \
-            --outputs-file out.json
+            --outputs-file=out.json
 
       - name: Deployment summary
         run: cat infra/out.json
