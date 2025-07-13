@@ -1,5 +1,4 @@
 name: VibeOps Build & Deploy
-
 on:
   repository_dispatch:
     types: [vibeops-build]
@@ -12,102 +11,40 @@ jobs:
       contents: read
 
     env:
-      AWS_REGION:   us-west-2
-      ACCOUNT_ID:   618214385848
-      TENANT_ID:    ${{ github.event.client_payload.tenant_id }}
-      DEPLOY_ID:    ${{ github.event.client_payload.deployment_id }}
-      RUNTIME:      ${{ github.event.client_payload.runtime }}
+      AWS_REGION: us-west-2
+      ACCOUNT_ID: 618214385848
+      TENANT_ID:  ${{ github.event.client_payload.tenant_id }}
+      DEPLOY_ID:  ${{ github.event.client_payload.deployment_id }}
+      RUNTIME:    ${{ github.event.client_payload.runtime }}
 
     steps:
-    ###################################################################
-    # 1- Checkout source repo                                         #
-    ###################################################################
-    - uses: actions/checkout@v4
-
-    ###################################################################
-    # 2- Node 20 (required by SST v3)                                 #
-    ###################################################################
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v4            # 1  source repo
+    - uses: actions/setup-node@v4          # 2  Node 20
       with: { node-version: 20 }
 
-    ###################################################################
-    # 3- Assume AWS role via OIDC                                     #
-    ###################################################################
-    - uses: aws-actions/configure-aws-credentials@v4
+    - uses: aws-actions/configure-aws-credentials@v4   # 3  OIDC
       with:
         role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
         aws-region:     ${{ env.AWS_REGION }}
 
-    ###################################################################
-    # 4- Build & push container image (only if runtime == container)  #
-    ###################################################################
-    - name: Build/push image
-      if: env.RUNTIME == 'container'
-      env:
-        ECR_REPO:  ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}
-        IMAGE:     ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}/app:${{ env.DEPLOY_ID }}
-      run: |
-        set -e
-        docker build -t "$IMAGE" .
-        aws ecr get-login-password --region $AWS_REGION | \
-          docker login --username AWS --password-stdin "$ECR_REPO"
-        docker push "$IMAGE"
-        echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
+    # 4  build/push image (container runtime only) …
 
-    ###################################################################
-    # 5- Checkout the generated infra repo / branch                   #
-    ###################################################################
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4            # 5  infra repo/branch
       with:
         repository: kislay007/vibeops-client-infra
         ref: dpl/${{ env.DEPLOY_ID }}
         token: ${{ secrets.VIBEOPS_INFRA_READ }}
         path: infra
 
-    ###################################################################
-    # Log infra directory structure and key files                     #
-    ###################################################################
-    - name: Log infra directory contents
+    # 5½  —— copy app source ——
+    - name: Copy app source into infra/app
       run: |
-        echo "Listing contents of ./infra:"
-        ls -l ./infra
-        echo "Listing package files in ./infra:"
-        ls -l ./infra/package*.json || true
-        echo "Listing SST config files in ./infra:"
-        ls -l ./infra/sst.* || true
+        mkdir -p infra/app
+        rsync -a --exclude '.git' --exclude 'infra' ./ infra/app/
 
-    ###################################################################
-    # Print contents of package.json                                 #
-    ###################################################################
-    - name: Show package.json
-      run: |
-        if [ -f ./infra/package.json ]; then
-          echo '--- ./infra/package.json ---'
-          cat ./infra/package.json
-          echo '--- end package.json ---'
-        else
-          echo 'No package.json found in ./infra'
-        fi
-
-    ###################################################################
-    # 6- Install deps (lockfile optional)                             #
-    ###################################################################
-    - name: Install deps
-      working-directory: infra
-      run: |
-        if [ -f package-lock.json ]; then
-          npm ci --no-fund --no-audit
-        else
-          npm install --no-fund --no-audit
-        fi
-
-    ###################################################################
-    # 7- Deploy with SST v3                                           #
-    ###################################################################
+    # 6  show dir / package.json …
+    # 7  npm install …
+    # 8  deploy
     - name: SST Deploy
       working-directory: infra
-      run: npx sst deploy --stage prod --verbose --print-logs true --config sst.config.ts
-
-      # (optional) collect stack outputs
-      # - name: Outputs
-      #   run: jq . <infra/out.json
+      run: npx sst deploy --stage prod --verbose
