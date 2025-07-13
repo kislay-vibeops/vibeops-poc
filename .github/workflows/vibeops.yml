@@ -95,7 +95,7 @@ jobs:
           BACKEND_IMAGE: ${{ steps.ecr.outputs.ECR_IMAGE }}
         run: |
           set -e
-          CMD="npx sst deploy --install --stage prod \
+          CMD="npx sst deploy --verbose --install --stage prod \
             --context tenant_id=$TENANT_ID \
             --context deployment_id=$DEPLOYMENT_ID"
           # add backendImage context only for containers
