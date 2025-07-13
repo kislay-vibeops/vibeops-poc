@@ -55,6 +55,16 @@ jobs:
           exit 1
         fi
 
+    - name: Show sst.config.ts
+      run: |
+        if [ -f ./infra/sst.config.ts ]; then
+          echo '--- ./infra/sst.config.ts ---'
+          cat ./infra/sst.config.ts
+          echo '--- end config ---'
+        else
+          echo 'No ./infra/sst.config.ts found'
+        fi
+
     # 8  deploy
     - name: SST Deploy
       working-directory: infra
