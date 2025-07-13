@@ -49,12 +49,22 @@ jobs:
     # Debug: Show contents of infra/package.json
     - name: Show contents of infra/package.json
       run: cat infra/package.json
-      
+
     - name: Show contents of infra/stacks/App.ts
       run: cat infra/stacks/App.ts
 
-    # 6  show dir / package.json …
-    # 7  npm install …
+    # Debug: Confirm tsconfig.json exists and print it
+    - name: Confirm and show tsconfig.json
+      run: |
+        if [ -f infra/tsconfig.json ]; then
+          echo '--- infra/tsconfig.json ---'
+          cat infra/tsconfig.json
+          echo '--- end tsconfig ---'
+        else
+          echo 'ERROR: infra/tsconfig.json not found!' >&2
+          exit 1
+        fi
+
     # 7½  confirm exactly one sst.config.ts
     - name: Confirm sst.config.ts exists once
       run: |
@@ -81,7 +91,11 @@ jobs:
       working-directory: infra
       run: rm -f package-lock.json
 
-    # 8  deploy
+    # 8  install deps
+    - name: Clean node_modules
+      working-directory: infra
+      run: rm -rf node_modules
+
     - name: Install deps
       working-directory: infra
       run: |
@@ -91,9 +105,19 @@ jobs:
     - name: List node_modules in infra
       run: ls -l infra/node_modules
 
+    # Debug: Check SST version
+    - name: Check SST version
+      working-directory: infra
+      run: npx sst --version
+
+    # Debug: Try SST build (for more verbose error if deploy fails)
+    - name: SST Build (debug)
+      working-directory: infra
+      run: npx sst build --verbose || true
+
     - name: SST Deploy
       working-directory: infra
-      run: npx sst deploy --stage prod --verbose
+      run: npx sst deploy --stage prod --verbose --print-logs true
 
     - name: Show SST Deploy Log
       if: failure()
