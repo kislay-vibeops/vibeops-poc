@@ -8,104 +8,89 @@ jobs:
   build-deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write      # OIDC → assume AWS role
+      id-token: write
       contents: read
 
     env:
-      AWS_REGION:     us-west-2
-      AWS_ACCOUNT_ID: 618214385848
-      TENANT_ID:      ${{ github.event.client_payload.tenant_id }}
-      DEPLOYMENT_ID:  ${{ github.event.client_payload.deployment_id }}
-      RUNTIME:        ${{ github.event.client_payload.runtime }}
+      AWS_REGION:   us-west-2
+      ACCOUNT_ID:   618214385848
+      TENANT_ID:    ${{ github.event.client_payload.tenant_id }}
+      DEPLOY_ID:    ${{ github.event.client_payload.deployment_id }}
+      RUNTIME:      ${{ github.event.client_payload.runtime }}
 
     steps:
-      #######################################################################
-      # 0) Show the payload – helps when debugging                          #
-      #######################################################################
-      - name: Echo event payload
-        run: echo '${{ toJson(github.event.client_payload) }}'
+    ###################################################################
+    # 1- Checkout source repo                                         #
+    ###################################################################
+    - uses: actions/checkout@v4
 
-      #######################################################################
-      # 1) Check-out the *source* repository                                #
-      #######################################################################
-      - uses: actions/checkout@v4
+    ###################################################################
+    # 2- Node 20 (required by SST v3)                                 #
+    ###################################################################
+    - uses: actions/setup-node@v4
+      with: { node-version: 20 }
 
-      #######################################################################
-      # 2) Pin Node 20 – required by SST v3                                 #
-      #######################################################################
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+    ###################################################################
+    # 3- Assume AWS role via OIDC                                     #
+    ###################################################################
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
+        aws-region:     ${{ env.AWS_REGION }}
 
-      #######################################################################
-      # 3) Assume the GitHub-deploy role via OIDC                           #
-      #######################################################################
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
-          aws-region:     ${{ env.AWS_REGION }}
+    ###################################################################
+    # 4- Build & push container image (only if runtime == container)  #
+    ###################################################################
+    - name: Build/push image
+      if: env.RUNTIME == 'container'
+      env:
+        ECR_REPO:  ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}
+        IMAGE:     ${{ env.ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.TENANT_ID }}/app:${{ env.DEPLOY_ID }}
+      run: |
+        set -e
+        docker build -t "$IMAGE" .
+        aws ecr get-login-password --region $AWS_REGION | \
+          docker login --username AWS --password-stdin "$ECR_REPO"
+        docker push "$IMAGE"
+        echo "BACKEND_IMAGE=$IMAGE" >> "$GITHUB_ENV"
 
-      #######################################################################
-      # 4) Build + push container image (only when runtime == container)    #
-      #######################################################################
-      - name: Compute container image URI
-        if: env.RUNTIME == 'container'
-        id: ecr
-        run: |
-          echo "ECR_REPO=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${TENANT_ID}"       >> "$GITHUB_OUTPUT"
-          echo "ECR_IMAGE=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${TENANT_ID}/app:${DEPLOYMENT_ID}" >> "$GITHUB_OUTPUT"
+    ###################################################################
+    # 5- Checkout the generated infra repo / branch                   #
+    ###################################################################
+    - uses: actions/checkout@v4
+      with:
+        repository: kislay007/vibeops-client-infra
+        ref: dpl/${{ env.DEPLOY_ID }}
+        token: ${{ secrets.VIBEOPS_INFRA_READ }}
+        path: infra
 
-      - name: Docker build & push
-        if: env.RUNTIME == 'container'
-        run: |
-          set -e
-          docker build -t ${{ steps.ecr.outputs.ECR_IMAGE }} .
-          aws ecr get-login-password --region $AWS_REGION |
-            docker login --username AWS --password-stdin ${{ steps.ecr.outputs.ECR_REPO }}
-          docker push ${{ steps.ecr.outputs.ECR_IMAGE }}
+    ###################################################################
+    # 6- Install deps (lockfile optional)                             #
+    ###################################################################
+    - name: Install infra deps
+      working-directory: infra
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci --no-fund --no-audit
+        else
+          npm install --no-fund --no-audit
+        fi
 
-      #######################################################################
-      # 5) Check-out the *infra* repo on the generated branch               #
-      #######################################################################
-      - uses: actions/checkout@v4
-        with:
-          repository: kislay007/vibeops-client-infra
-          ref: dpl/${{ env.DEPLOYMENT_ID }}
-          token: ${{ secrets.VIBEOPS_INFRA_READ }}
-          path: infra
+    ###################################################################
+    # 7- Deploy with SST v3                                           #
+    ###################################################################
+    - name: SST deploy
+      working-directory: infra
+      env:
+        TENANT_ID:      ${{ env.TENANT_ID }}
+        DEPLOYMENT_ID:  ${{ env.DEPLOY_ID }}
+        BACKEND_IMAGE:  ${{ env.BACKEND_IMAGE }}
+      run: |
+        npx sst deploy --stage prod --verbose
 
-      #######################################################################
-      # 6) Install infra dependencies                                       #
-      #######################################################################
-      - name: Install deps
-        working-directory: infra
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci --no-fund --no-audit
-          else
-            npm install --no-fund --no-audit
-          fi
-
-      #######################################################################
-      # 7) Deploy with SST                                                  #
-      #######################################################################
-      - name: SST deploy
-        working-directory: infra
-        env:
-          BACKEND_IMAGE: ${{ steps.ecr.outputs.ECR_IMAGE }}
-        run: |
-          set -e
-          CMD="npx sst deploy --verbose --install --stage prod \
-            --context tenant_id=$TENANT_ID \
-            --context deployment_id=$DEPLOYMENT_ID"
-          # add backendImage context only for containers
-          if [ "$RUNTIME" = "container" ]; then
-            CMD="$CMD --context backendImage=$BACKEND_IMAGE"
-          fi
-          CMD="$CMD --outputs-file out.json"
-          echo "Running: $CMD"
-          eval "$CMD"
-
-      - name: Deployment summary
-        working-directory: infra
-        run: cat out.json
+    ###################################################################
+    # 8- Show CloudFormation outputs                                  #
+    ###################################################################
+    - name: Outputs
+      working-directory: infra
+      run: npx sst outputs --stage prod
