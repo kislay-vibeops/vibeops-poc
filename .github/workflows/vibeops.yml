@@ -44,6 +44,17 @@ jobs:
 
     # 6  show dir / package.json …
     # 7  npm install …
+    # 7½  confirm exactly one sst.config.ts
+    - name: Confirm sst.config.ts exists once
+      run: |
+        echo 'Looking for sst.config.ts (maxdepth 2)...'
+        set -e
+        count=$(find . -maxdepth 2 -name 'sst.config.ts' | tee /dev/stderr | wc -l)
+        if [ "$count" -ne 1 ]; then
+          echo "ERROR: Expected exactly one sst.config.ts, found $count" >&2
+          exit 1
+        fi
+
     # 8  deploy
     - name: SST Deploy
       working-directory: infra
