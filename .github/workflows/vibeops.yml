@@ -106,7 +106,7 @@ jobs:
     ###################################################################
     - name: SST Deploy
       working-directory: infra
-      run: npx sst deploy --stage prod --verbose
+      run: npx sst deploy --stage prod --verbose --print-logs true --config sst.config.ts
 
       # (optional) collect stack outputs
       # - name: Outputs
