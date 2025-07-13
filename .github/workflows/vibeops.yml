@@ -4,42 +4,69 @@ on:
   repository_dispatch:
     types: [vibeops-build]
 
-env:
-  AWS_REGION:        us-west-2
-  AWS_ACCOUNT_ID:    618214385848
-  TENANT_ID:         ${{ github.event.client_payload.tenant_id }}
-  DEPLOYMENT_ID:     ${{ github.event.client_payload.deployment_id }}
-  RUNTIME:           ${{ github.event.client_payload.runtime }}
-  # only used when RUNTIME == container
-  ECR_REPO:   ${{ vars.AWS_ACCOUNT_ID }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ vars.TENANT_ID }}
-  ECR_IMAGE:  ${{ vars.ECR_REPO }}/app:${{ vars.DEPLOYMENT_ID }}
-
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
+      id-token: write      # OIDC → assume AWS role
       contents: read
 
+    env:
+      AWS_REGION:     us-west-2
+      AWS_ACCOUNT_ID: 618214385848
+      TENANT_ID:      ${{ github.event.client_payload.tenant_id }}
+      DEPLOYMENT_ID:  ${{ github.event.client_payload.deployment_id }}
+      RUNTIME:        ${{ github.event.client_payload.runtime }}
+
     steps:
-      # 1  Checkout source repo
+      #######################################################################
+      # 0) Show the payload – helps when debugging                          #
+      #######################################################################
+      - name: Echo event payload
+        run: echo '${{ toJson(github.event.client_payload) }}'
+
+      #######################################################################
+      # 1) Check-out the *source* repository                                #
+      #######################################################################
       - uses: actions/checkout@v4
 
-      # 2  Get short-lived AWS creds via OIDC
+      #######################################################################
+      # 2) Pin Node 20 – required by SST v3                                 #
+      #######################################################################
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      #######################################################################
+      # 3) Assume the GitHub-deploy role via OIDC                           #
+      #######################################################################
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
           aws-region:     ${{ env.AWS_REGION }}
 
-      # ---------- container build / push (only for “container” runtime) ----------
-      - if: env.RUNTIME == 'container'
+      #######################################################################
+      # 4) Build + push container image (only when runtime == container)    #
+      #######################################################################
+      - name: Compute container image URI
+        if: env.RUNTIME == 'container'
+        id: ecr
         run: |
-          docker build -t $ECR_IMAGE .
-          aws ecr get-login-password --region $AWS_REGION |
-            docker login --username AWS --password-stdin $ECR_REPO
-          docker push $ECR_IMAGE
+          echo "ECR_REPO=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${TENANT_ID}"       >> "$GITHUB_OUTPUT"
+          echo "ECR_IMAGE=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${TENANT_ID}/app:${DEPLOYMENT_ID}" >> "$GITHUB_OUTPUT"
 
-      # 4  Pull the generated SST stack
+      - name: Docker build & push
+        if: env.RUNTIME == 'container'
+        run: |
+          set -e
+          docker build -t ${{ steps.ecr.outputs.ECR_IMAGE }} .
+          aws ecr get-login-password --region $AWS_REGION |
+            docker login --username AWS --password-stdin ${{ steps.ecr.outputs.ECR_REPO }}
+          docker push ${{ steps.ecr.outputs.ECR_IMAGE }}
+
+      #######################################################################
+      # 5) Check-out the *infra* repo on the generated branch               #
+      #######################################################################
       - uses: actions/checkout@v4
         with:
           repository: kislay007/vibeops-client-infra
@@ -47,19 +74,38 @@ jobs:
           token: ${{ secrets.VIBEOPS_INFRA_READ }}
           path: infra
 
-      # ---------- deploy ----------
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20   # SST v3 supports 20.x, avoid 22.x for now
-
-      - name: SST Deploy
+      #######################################################################
+      # 6) Install infra dependencies                                       #
+      #######################################################################
+      - name: Install deps
         working-directory: infra
         run: |
-          npx sst deploy --install --stage prod \
+          if [ -f package-lock.json ]; then
+            npm ci --no-fund --no-audit
+          else
+            npm install --no-fund --no-audit
+          fi
+
+      #######################################################################
+      # 7) Deploy with SST                                                  #
+      #######################################################################
+      - name: SST deploy
+        working-directory: infra
+        env:
+          BACKEND_IMAGE: ${{ steps.ecr.outputs.ECR_IMAGE }}
+        run: |
+          set -e
+          CMD="npx sst deploy --install --stage prod \
             --context tenant_id=$TENANT_ID \
-            --context deployment_id=$DEPLOYMENT_ID \
-            $( [ "$RUNTIME" = "container" ] && echo --context backendImage=$ECR_IMAGE ) \
-            --outputs-file out.json
+            --context deployment_id=$DEPLOYMENT_ID"
+          # add backendImage context only for containers
+          if [ "$RUNTIME" = "container" ]; then
+            CMD="$CMD --context backendImage=$BACKEND_IMAGE"
+          fi
+          CMD="$CMD --outputs-file out.json"
+          echo "Running: $CMD"
+          eval "$CMD"
 
       - name: Deployment summary
-        run: cat infra/out.json
+        working-directory: infra
+        run: cat out.json
