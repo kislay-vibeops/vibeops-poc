@@ -108,7 +108,7 @@ jobs:
     # Debug: Check SST version
     - name: Check SST version
       working-directory: infra
-      run: npx sst --version
+      run: npx sst version
 
     # Debug: Try SST build (for more verbose error if deploy fails)
     - name: SST Build (debug)
