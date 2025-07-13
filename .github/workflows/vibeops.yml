@@ -49,6 +49,9 @@ jobs:
     # Debug: Show contents of infra/package.json
     - name: Show contents of infra/package.json
       run: cat infra/package.json
+      
+    - name: Show contents of infra/stacks/App.ts
+      run: cat infra/stacks/App.ts
 
     # 6  show dir / package.json …
     # 7  npm install …
@@ -82,7 +85,7 @@ jobs:
     - name: Install deps
       working-directory: infra
       run: |
-        npm install --no-fund --no-audit
+        npm install --no-fund --no-audit --verbose
 
     # Debug: List node_modules in infra after install
     - name: List node_modules in infra
@@ -91,3 +94,7 @@ jobs:
     - name: SST Deploy
       working-directory: infra
       run: npx sst deploy --stage prod --verbose
+
+    - name: Show SST Deploy Log
+      if: failure()
+      run: cat infra/.sst/outputs/deploy.log || echo "No deploy log found"
