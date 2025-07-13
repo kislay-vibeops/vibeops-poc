@@ -42,6 +42,14 @@ jobs:
         mkdir -p infra/app
         rsync -a --exclude '.git' --exclude 'infra' ./ infra/app/
 
+    # Debug: List files in infra directory
+    - name: List files in infra directory
+      run: ls -l infra
+
+    # Debug: Show contents of infra/package.json
+    - name: Show contents of infra/package.json
+      run: cat infra/package.json
+
     # 6  show dir / package.json …
     # 7  npm install …
     # 7½  confirm exactly one sst.config.ts
@@ -76,6 +84,11 @@ jobs:
         fi
         # guarantee same lib version as CLI
         npm install --no-fund --no-audit sst@3.17.10
+
+    # Debug: List node_modules in infra after install
+    - name: List node_modules in infra
+      run: ls -l infra/node_modules
+
     - name: SST Deploy
       working-directory: infra
       run: npx sst deploy --stage prod --verbose
