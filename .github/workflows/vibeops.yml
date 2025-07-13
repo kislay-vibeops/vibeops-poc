@@ -73,17 +73,16 @@ jobs:
           echo 'No ./infra/sst.config.ts found'
         fi
 
+    # Clean up any old lock file to avoid version pinning
+    - name: Clean old lock file
+      working-directory: infra
+      run: rm -f package-lock.json
+
     # 8  deploy
     - name: Install deps
       working-directory: infra
       run: |
-        if [ -f package-lock.json ]; then
-          npm ci --no-fund --no-audit
-        else
-          npm install --no-fund --no-audit
-        fi
-        # guarantee same lib version as CLI
-        npm install --no-fund --no-audit sst@3.17.10
+        npm install --no-fund --no-audit
 
     # Debug: List node_modules in infra after install
     - name: List node_modules in infra
