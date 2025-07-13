@@ -66,6 +66,16 @@ jobs:
         fi
 
     # 8  deploy
+    - name: Install deps
+      working-directory: infra
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci --no-fund --no-audit
+        else
+          npm install --no-fund --no-audit
+        fi
+        # guarantee same lib version as CLI
+        npm install --no-fund --no-audit sst@3.17.10
     - name: SST Deploy
       working-directory: infra
       run: npx sst deploy --stage prod --verbose
