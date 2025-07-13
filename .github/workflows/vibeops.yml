@@ -65,6 +65,31 @@ jobs:
         path: infra
 
     ###################################################################
+    # Log infra directory structure and key files                     #
+    ###################################################################
+    - name: Log infra directory contents
+      run: |
+        echo "Listing contents of ./infra:"
+        ls -l ./infra
+        echo "Listing package files in ./infra:"
+        ls -l ./infra/package*.json || true
+        echo "Listing SST config files in ./infra:"
+        ls -l ./infra/sst.* || true
+
+    ###################################################################
+    # Print contents of package.json                                 #
+    ###################################################################
+    - name: Show package.json
+      run: |
+        if [ -f ./infra/package.json ]; then
+          echo '--- ./infra/package.json ---'
+          cat ./infra/package.json
+          echo '--- end package.json ---'
+        else
+          echo 'No package.json found in ./infra'
+        fi
+
+    ###################################################################
     # 6- Install deps (lockfile optional)                             #
     ###################################################################
     - name: Install infra deps
@@ -86,11 +111,9 @@ jobs:
         DEPLOYMENT_ID:  ${{ env.DEPLOY_ID }}
         BACKEND_IMAGE:  ${{ env.BACKEND_IMAGE }}
       run: |
+        # single command works for all runtimes
         npx sst deploy --stage prod --verbose
 
-    ###################################################################
-    # 8- Show CloudFormation outputs                                  #
-    ###################################################################
-    - name: Outputs
-      working-directory: infra
-      run: npx sst outputs --stage prod
+      # (optional) collect stack outputs
+      # - name: Outputs
+      #   run: jq . <infra/out.json
