@@ -92,7 +92,7 @@ jobs:
     ###################################################################
     # 6- Install deps (lockfile optional)                             #
     ###################################################################
-    - name: Install infra deps
+    - name: Install deps
       working-directory: infra
       run: |
         if [ -f package-lock.json ]; then
@@ -104,15 +104,9 @@ jobs:
     ###################################################################
     # 7- Deploy with SST v3                                           #
     ###################################################################
-    - name: SST deploy
+    - name: SST Deploy
       working-directory: infra
-      env:
-        TENANT_ID:      ${{ env.TENANT_ID }}
-        DEPLOYMENT_ID:  ${{ env.DEPLOY_ID }}
-        BACKEND_IMAGE:  ${{ env.BACKEND_IMAGE }}
-      run: |
-        # single command works for all runtimes
-        npx sst deploy --stage prod --verbose
+      run: npx sst deploy --stage prod --verbose
 
       # (optional) collect stack outputs
       # - name: Outputs
