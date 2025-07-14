@@ -1,4 +1,5 @@
 name: VibeOps Build & Deploy
+
 on:
   repository_dispatch:
     types: [vibeops-build]
@@ -18,42 +19,38 @@ jobs:
       RUNTIME:    ${{ github.event.client_payload.runtime }}
 
     steps:
-    - uses: actions/checkout@v4            # 1  source repo
-    - uses: actions/setup-node@v4          # 2  Node 20
-      with: { node-version: 20 }
+    - uses: actions/checkout@v4
 
-    - uses: aws-actions/configure-aws-credentials@v4   # 3  OIDC
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
         aws-region:     ${{ env.AWS_REGION }}
 
-    # 4  build/push image (container runtime only) …
-
-    - uses: actions/checkout@v4            # 5  infra repo/branch
+    - uses: actions/checkout@v4
       with:
         repository: kislay007/vibeops-client-infra
         ref: dpl/${{ env.DEPLOY_ID }}
         token: ${{ secrets.VIBEOPS_INFRA_READ }}
         path: infra
 
-    # 5½  —— copy app source ——
     - name: Copy app source into infra/app
       run: |
         mkdir -p infra/app
         rsync -a --exclude '.git' --exclude 'infra' ./ infra/app/
 
-    # Debug: List files in infra directory
     - name: List files in infra directory
       run: ls -l infra
 
-    # Debug: Show contents of infra/package.json
     - name: Show contents of infra/package.json
       run: cat infra/package.json
 
     - name: Show contents of infra/stacks/App.ts
       run: cat infra/stacks/App.ts
 
-    # Debug: Confirm tsconfig.json exists and print it
     - name: Confirm and show tsconfig.json
       run: |
         if [ -f infra/tsconfig.json ]; then
@@ -65,7 +62,6 @@ jobs:
           exit 1
         fi
 
-    # 7½  confirm exactly one sst.config.ts
     - name: Confirm sst.config.ts exists once
       run: |
         echo 'Looking for sst.config.ts (maxdepth 2)...'
@@ -78,42 +74,50 @@ jobs:
 
     - name: Show sst.config.ts
       run: |
-        if [ -f ./infra/sst.config.ts ]; then
-          echo '--- ./infra/sst.config.ts ---'
-          cat ./infra/sst.config.ts
-          echo '--- end config ---'
-        else
-          echo 'No ./infra/sst.config.ts found'
-        fi
+        echo '--- ./infra/sst.config.ts ---'
+        cat ./infra/sst.config.ts
+        echo '--- end config ---'
 
-    # Clean up any old lock file to avoid version pinning
-    - name: Clean old lock file
+    - name: Clean SST cache
       working-directory: infra
-      run: rm -f package-lock.json
+      run: rm -rf .sst
 
-    # 8  install deps
+    # Optional: clean lockfile only if you're intentionally forcing fresh deps
+    # - name: Clean old lock file
+    #   working-directory: infra
+    #   run: rm -f package-lock.json
+
     - name: Clean node_modules
       working-directory: infra
       run: rm -rf node_modules
 
     - name: Install deps
       working-directory: infra
-      run: |
-        npm install --no-fund --no-audit --verbose
+      run: npm install --no-fund --no-audit --verbose
 
-    # Debug: List node_modules in infra after install
     - name: List node_modules in infra
       run: ls -l infra/node_modules
 
-    # Debug: Check SST version
     - name: Check SST version
       working-directory: infra
-      run: npx sst version
+      run: |
+        version=$(npx sst version | cut -d ' ' -f2)
+        echo "SST version: $version"
+        if [[ "$version" != "3.17.10" ]]; then
+          echo "❌ Incorrect SST version" >&2
+          exit 1
+        fi
 
-    # Debug: Try SST build (for more verbose error if deploy fails)
     - name: SST Build (debug)
       working-directory: infra
       run: npx sst build --verbose || true
+
+    - name: Dump compiled SST config (.sst/platform)
+      working-directory: infra
+      run: |
+        echo '--- Compiled sst.config.*.mjs ---'
+        cat .sst/platform/*.mjs || echo 'No compiled config found'
+        echo '--- End compiled config ---'
 
     - name: SST Deploy
       working-directory: infra
