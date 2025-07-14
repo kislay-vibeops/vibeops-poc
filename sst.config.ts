@@ -9,6 +9,9 @@ export default $config({
     };
   },
   async run() {
-    new sst.aws.Nextjs("MyWeb");
+    new sst.aws.Nextjs("MyWeb", {
+      domain: "poc1.vibeops.tech",
+      // isr: false,
+    });
   },
 });
