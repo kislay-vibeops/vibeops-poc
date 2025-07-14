@@ -19,110 +19,79 @@ jobs:
       RUNTIME:    ${{ github.event.client_payload.runtime }}
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
+          aws-region:     ${{ env.AWS_REGION }}
 
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      - name: List files in project directory
+        run: ls -l
 
-    - uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: arn:aws:iam::618214385848:role/GitHubDeployRoleTemplate
-        aws-region:     ${{ env.AWS_REGION }}
+      - name: Show contents of package.json
+        run: cat package.json
 
-    - uses: actions/checkout@v4
-      with:
-        repository: kislay007/vibeops-client-infra
-        ref: dpl/${{ env.DEPLOY_ID }}
-        token: ${{ secrets.VIBEOPS_INFRA_READ }}
-        path: infra
 
-    - name: Copy app source into infra/app
-      run: |
-        mkdir -p infra/app
-        rsync -a --exclude '.git' --exclude 'infra' ./ infra/app/
 
-    - name: List files in infra directory
-      run: ls -l infra
+      - name: Confirm and show tsconfig.json
+        run: |
+          if [ -f tsconfig.json ]; then
+            echo '--- tsconfig.json ---'
+            cat tsconfig.json
+            echo '--- end tsconfig ---'
+          else
+            echo 'ERROR: tsconfig.json not found!' >&2
+            exit 1
+          fi
 
-    - name: Show contents of infra/package.json
-      run: cat infra/package.json
+      - name: Confirm sst.config.ts exists once
+        run: |
+          echo 'Looking for sst.config.ts (maxdepth 2)...'
+          set -e
+          count=$(find . -maxdepth 2 -name 'sst.config.ts' | tee /dev/stderr | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "ERROR: Expected exactly one sst.config.ts, found $count" >&2
+            exit 1
+          fi
 
-    - name: Show contents of infra/stacks/App.ts
-      run: cat infra/stacks/App.ts
+      - name: Show sst.config.ts
+        run: |
+          echo '--- ./sst.config.ts ---'
+          cat ./sst.config.ts
+          echo '--- end config ---'
 
-    - name: Confirm and show tsconfig.json
-      run: |
-        if [ -f infra/tsconfig.json ]; then
-          echo '--- infra/tsconfig.json ---'
-          cat infra/tsconfig.json
-          echo '--- end tsconfig ---'
-        else
-          echo 'ERROR: infra/tsconfig.json not found!' >&2
-          exit 1
-        fi
+      - name: Clean SST cache
+        run: rm -rf .sst
 
-    - name: Confirm sst.config.ts exists once
-      run: |
-        echo 'Looking for sst.config.ts (maxdepth 2)...'
-        set -e
-        count=$(find . -maxdepth 2 -name 'sst.config.ts' | tee /dev/stderr | wc -l)
-        if [ "$count" -ne 1 ]; then
-          echo "ERROR: Expected exactly one sst.config.ts, found $count" >&2
-          exit 1
-        fi
+      # Optional: clean lockfile only if you're intentionally forcing fresh deps
+      # - name: Clean old lock file
+      #   run: rm -f package-lock.json
 
-    - name: Show sst.config.ts
-      run: |
-        echo '--- ./infra/sst.config.ts ---'
-        cat ./infra/sst.config.ts
-        echo '--- end config ---'
+      - name: Clean node_modules
+        run: rm -rf node_modules
 
-    - name: Clean SST cache
-      working-directory: infra
-      run: rm -rf .sst
+      - name: Install deps
+        run: npm install --no-fund --no-audit --verbose
 
-    # Optional: clean lockfile only if you're intentionally forcing fresh deps
-    # - name: Clean old lock file
-    #   working-directory: infra
-    #   run: rm -f package-lock.json
+      - name: List node_modules
+        run: ls -l node_modules
 
-    - name: Clean node_modules
-      working-directory: infra
-      run: rm -rf node_modules
 
-    - name: Install deps
-      working-directory: infra
-      run: npm install --no-fund --no-audit --verbose
+      - name: SST Build (debug)
+        run: npx sst build --verbose || true
 
-    - name: List node_modules in infra
-      run: ls -l infra/node_modules
+      - name: Dump compiled SST config (.sst/platform)
+        run: |
+          echo '--- Compiled sst.config.*.mjs ---'
+          cat .sst/platform/*.mjs || echo 'No compiled config found'
+          echo '--- End compiled config ---'
 
-    - name: Check SST version
-      working-directory: infra
-      run: |
-        version=$(npx sst version | cut -d ' ' -f2)
-        echo "SST version: $version"
-        if [[ "$version" != "3.17.10" ]]; then
-          echo "❌ Incorrect SST version" >&2
-          exit 1
-        fi
+      - name: SST Deploy
+        run: npx sst deploy --stage prod --verbose --print-logs true
 
-    - name: SST Build (debug)
-      working-directory: infra
-      run: npx sst build --verbose || true
-
-    - name: Dump compiled SST config (.sst/platform)
-      working-directory: infra
-      run: |
-        echo '--- Compiled sst.config.*.mjs ---'
-        cat .sst/platform/*.mjs || echo 'No compiled config found'
-        echo '--- End compiled config ---'
-
-    - name: SST Deploy
-      working-directory: infra
-      run: npx sst deploy --stage prod --verbose --print-logs true
-
-    - name: Show SST Deploy Log
-      if: failure()
-      run: cat infra/.sst/outputs/deploy.log || echo "No deploy log found"
+      - name: Show SST Deploy Log
+        if: failure()
+        run: cat .sst/outputs/deploy.log || echo "No deploy log found"
