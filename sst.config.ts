@@ -3,7 +3,7 @@
 export default $config({
   app(input) {
     return {
-      name: "test-repo",
+      name: "test-repo-2",
       removal: input?.stage === "production" ? "retain" : "remove",
       home: "aws",
     };
