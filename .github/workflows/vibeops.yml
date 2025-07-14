@@ -94,4 +94,4 @@ jobs:
 
       - name: Show SST Deploy Log
         if: failure()
-        run: cat .sst/outputs/deploy.log || echo "No deploy log found"
+        run: cat .sst/log/sst.log || echo "No deploy log found"
